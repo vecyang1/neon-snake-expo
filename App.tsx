@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { StyleSheet, View, ActivityIndicator } from "react-native";
+import { StyleSheet, View, ActivityIndicator, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { THEMES, ThemeName } from "./src/styles/theme";
@@ -168,7 +168,15 @@ export default function App() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar style="light" translucent backgroundColor="transparent" />
-      {renderScreen()}
+      <View
+        style={[
+          styles.contentWrapper,
+          Platform.OS === "web" && styles.webWrapper,
+          { backgroundColor: colors.background },
+        ]}
+      >
+        {renderScreen()}
+      </View>
     </View>
   );
 }
@@ -176,6 +184,22 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  contentWrapper: {
+    flex: 1,
+    width: "100%",
+  },
+  webWrapper: {
+    maxWidth: 480,
+    width: "100%",
+    alignSelf: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.05)",
+    // Add glow/shadow for web card feel
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.8,
+    shadowRadius: 20,
   },
   loadingContainer: {
     flex: 1,
