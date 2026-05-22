@@ -45,11 +45,12 @@ export const useGameEngine = (
   const [isPlaying, setIsPlaying] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
+  const [gameOverReason, setGameOverReason] = useState("");
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [foodEatenCount, setFoodEatenCount] = useState(0);
   const [gameTimeLeft, setGameTimeLeft] = useState(60); // Used in TIME_ATTACK mode
-  
+
   // Ref variables to avoid re-triggering effects on state changes
   const snakeRef = useRef<Snake | null>(null);
   const foodGeneratorRef = useRef<FoodGenerator | null>(null);
@@ -61,8 +62,24 @@ export const useGameEngine = (
   const scoreRef = useRef(0);
   const currentModeRef = useRef(mode);
 
-  // Maze Obstacles (placed symmetrically in MAZE mode)
+  // Sync food state into a ref for the game loop to avoid dependency changes
+  const foodRef = useRef<FoodItem | null>(null);
+  useEffect(() => {
+    foodRef.current = food;
+  }, [food]);
+
+  // Sync obstacles state into a ref
   const [obstacles, setObstacles] = useState<Position[]>([]);
+  const obstaclesRef = useRef<Position[]>([]);
+  useEffect(() => {
+    obstaclesRef.current = obstacles;
+  }, [obstacles]);
+
+  // Stabilize callbacks using ref
+  const callbacksRef = useRef(callbacks);
+  useEffect(() => {
+    callbacksRef.current = callbacks;
+  }, [callbacks]);
 
   // Update current mode ref
   useEffect(() => {
@@ -113,19 +130,22 @@ export const useGameEngine = (
     }
   }, [mode, gridWidth, gridHeight]);
 
-  // Game termination helper
-  const endGame = useCallback(async () => {
+  // Game termination helper (completely stable dependency array)
+  const endGame = useCallback(async (reason: string = "unspecified") => {
+    console.log(`[GameEngine] endGame called. Reason: ${reason}, Score: ${scoreRef.current}`);
     setIsPlaying(false);
     isPlayingRef.current = false;
     setIsGameOver(true);
+    setGameOverReason(reason);
 
     if (loopIntervalRef.current) clearInterval(loopIntervalRef.current);
     if (timeAttackIntervalRef.current) clearInterval(timeAttackIntervalRef.current);
 
+    const currentMode = currentModeRef.current;
     let key = KEYS.classicHighScore;
-    if (mode === "ENDLESS") key = KEYS.endlessHighScore;
-    if (mode === "TIME_ATTACK") key = KEYS.timeAttackHighScore;
-    if (mode === "MAZE") key = KEYS.mazeHighScore;
+    if (currentMode === "ENDLESS") key = KEYS.endlessHighScore;
+    if (currentMode === "TIME_ATTACK") key = KEYS.timeAttackHighScore;
+    if (currentMode === "MAZE") key = KEYS.mazeHighScore;
 
     const finalScore = scoreRef.current;
     let isNewHighScore = false;
@@ -154,10 +174,10 @@ export const useGameEngine = (
       console.warn("Error saving stats", err);
     }
 
-    callbacks?.onGameOver?.(finalScore, isNewHighScore);
-  }, [mode, callbacks]);
+    callbacksRef.current?.onGameOver?.(finalScore, isNewHighScore);
+  }, []);
 
-  // Periodic Game Step Loop
+  // Periodic Game Step Loop (completely stable: depends only on board and endGame)
   const gameStep = useCallback(() => {
     if (!isPlayingRef.current || isPausedRef.current || !snakeRef.current) return;
 
@@ -167,13 +187,15 @@ export const useGameEngine = (
     currentSnake.move();
     
     const head = currentSnake.head;
+    console.log(`[GameStep] Head: (${head.x}, ${head.y}), Dir: ${currentSnake.direction}, NextDir: ${(currentSnake as any).nextDirection}`);
     const currentMode = currentModeRef.current;
 
     // Boundary Collisions
     if (currentMode === "CLASSIC" || currentMode === "TIME_ATTACK" || currentMode === "MAZE") {
       if (!board.isValidPosition(head)) {
-        callbacks?.onCollide?.();
-        endGame();
+        console.log(`[GameEngine] Boundary collision at head x:${head.x}, y:${head.y} (grid: ${board.gridWidth}x${board.gridHeight})`);
+        callbacksRef.current?.onCollide?.();
+        endGame(`boundary_collision_head_x${head.x}_y${head.y}`);
         return;
       }
     } else if (currentMode === "ENDLESS") {
@@ -186,25 +208,27 @@ export const useGameEngine = (
 
     // Maze Block Obstacle Collisions
     if (currentMode === "MAZE") {
-      const hitObstacle = obstacles.some(
+      const hitObstacle = obstaclesRef.current.some(
         block => block.x === currentSnake.head.x && block.y === currentSnake.head.y
       );
       if (hitObstacle) {
-        callbacks?.onCollide?.();
-        endGame();
+        console.log(`[GameEngine] Obstacle collision at head x:${head.x}, y:${head.y}`);
+        callbacksRef.current?.onCollide?.();
+        endGame(`maze_obstacle_collision_x${head.x}_y${head.y}`);
         return;
       }
     }
 
     // Self Collision
     if (currentSnake.willCollideWithSelf()) {
-      callbacks?.onCollide?.();
-      endGame();
+      console.log(`[GameEngine] Self collision detected at head x:${head.x}, y:${head.y}`);
+      callbacksRef.current?.onCollide?.();
+      endGame("self_collision");
       return;
     }
 
     // Food Consumption
-    const currentFoodItem = food;
+    const currentFoodItem = foodRef.current;
     if (currentFoodItem && head.x === currentFoodItem.position.x && head.y === currentFoodItem.position.y) {
       // Eat food: add score and spawn new
       const points = currentFoodItem.pointValue;
@@ -221,9 +245,6 @@ export const useGameEngine = (
       }
 
       // Grow Snake (do not pop the tail segment)
-      // Snake is already grown because .move() inserted a new head at [0], 
-      // and we avoid calling removeTail() on growth ticks.
-      
       // Gradually speed up
       speedRef.current = Math.max(MIN_SPEED, speedRef.current - SPEED_DECREMENT);
       
@@ -233,7 +254,7 @@ export const useGameEngine = (
         setFood(newFood);
       }
 
-      callbacks?.onEatFood?.(currentFoodItem);
+      callbacksRef.current?.onEatFood?.(currentFoodItem);
     } else {
       // Normal step: pop the tail to maintain length
       currentSnake.removeTail();
@@ -241,9 +262,9 @@ export const useGameEngine = (
 
     // Update state to trigger re-renders
     setSnake([...currentSnake.body]);
-  }, [board, food, obstacles, endGame, callbacks]);
+  }, [board, endGame]);
 
-  // Restart intervals when speed changes
+  // Restart intervals when speed changes (completely stable)
   const updateLoopSpeed = useCallback(() => {
     if (loopIntervalRef.current) clearInterval(loopIntervalRef.current);
     if (isPlayingRef.current && !isPausedRef.current) {
@@ -251,7 +272,7 @@ export const useGameEngine = (
     }
   }, [gameStep]);
 
-  // Start a new game
+  // Start a new game (completely stable)
   const startGame = useCallback(() => {
     if (loopIntervalRef.current) clearInterval(loopIntervalRef.current);
     if (timeAttackIntervalRef.current) clearInterval(timeAttackIntervalRef.current);
@@ -271,17 +292,19 @@ export const useGameEngine = (
     setFoodEatenCount(0);
     speedRef.current = INITIAL_SPEED;
     setIsGameOver(false);
+    setGameOverReason("");
     setIsPaused(false);
     isPausedRef.current = false;
     
     // Time Attack Configuration
-    if (mode === "TIME_ATTACK") {
+    const currentMode = currentModeRef.current;
+    if (currentMode === "TIME_ATTACK") {
       setGameTimeLeft(60);
       timeAttackIntervalRef.current = setInterval(() => {
         if (!isPausedRef.current) {
           setGameTimeLeft(prev => {
             if (prev <= 1) {
-              endGame();
+              endGame("time_attack_timeout");
               return 0;
             }
             return prev - 1;
@@ -293,11 +316,11 @@ export const useGameEngine = (
     setIsPlaying(true);
     isPlayingRef.current = true;
     
-    callbacks?.onStart?.();
+    callbacksRef.current?.onStart?.();
 
     // Start tick loop
     loopIntervalRef.current = setInterval(gameStep, speedRef.current);
-  }, [board, mode, gameStep, endGame, callbacks]);
+  }, [board, gameStep, endGame]);
 
   // Pause game
   const pauseGame = useCallback(() => {
@@ -329,10 +352,10 @@ export const useGameEngine = (
     };
   }, []);
 
-  // Sync interval whenever game Step changes or speed is recalculated
+  // Sync interval whenever speed changes or is updated
   useEffect(() => {
     updateLoopSpeed();
-  }, [score, updateLoopSpeed]);
+  }, [updateLoopSpeed]);
 
   return {
     board,
@@ -341,6 +364,7 @@ export const useGameEngine = (
     isPlaying,
     isPaused,
     isGameOver,
+    gameOverReason,
     score,
     highScore,
     foodEatenCount,

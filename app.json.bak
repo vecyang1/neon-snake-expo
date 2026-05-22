@@ -26,8 +26,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "experiments": {
-      "baseUrl": "/neon-snake-expo"
+    "owner": "worldinspire",
+    "extra": {
+      "eas": {
+        "projectId": "89a79ff7-5676-4ea0-8bed-7277b2e69ea9"
+      }
     }
   }
 }

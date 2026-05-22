@@ -8,6 +8,7 @@ import {
   SafeAreaView,
   Vibration,
   Dimensions,
+  Platform,
 } from "react-native";
 import { ThemeColors, UI_STYLES } from "../styles/theme";
 import { useGameEngine, GameMode } from "../game/useGameEngine";
@@ -75,6 +76,7 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     isPlaying,
     isPaused,
     isGameOver,
+    gameOverReason,
     score,
     highScore,
     foodEatenCount,
@@ -101,6 +103,55 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     startGame();
   }, []);
 
+  // Desktop keyboard controls
+  useEffect(() => {
+    if (Platform.OS === "web") {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        // Prevent browser scrolling behavior for control keys
+        if (
+          ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "KeyW", "KeyS", "KeyA", "KeyD"].includes(
+            e.code
+          )
+        ) {
+          e.preventDefault();
+        }
+
+        switch (e.code) {
+          case "ArrowUp":
+          case "KeyW":
+            changeDirection("UP");
+            break;
+          case "ArrowDown":
+          case "KeyS":
+            changeDirection("DOWN");
+            break;
+          case "ArrowLeft":
+          case "KeyA":
+            changeDirection("LEFT");
+            break;
+          case "ArrowRight":
+          case "KeyD":
+            changeDirection("RIGHT");
+            break;
+          case "Space":
+            if (isGameOver) {
+              startGame();
+            } else if (isPaused) {
+              resumeGame();
+            } else if (isPlaying) {
+              pauseGame();
+            }
+            break;
+        }
+      };
+
+      window.addEventListener("keydown", handleKeyDown);
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+      };
+    }
+  }, [changeDirection, isPlaying, isPaused, isGameOver, resumeGame, pauseGame, startGame]);
+
   // Gesture Handlers (Pure JS, no library dependencies, bulletproof compile)
   const handleTouchStart = (e: any) => {
     touchStartX.current = e.nativeEvent.pageX;
@@ -116,24 +167,28 @@ export const GameScreen: React.FC<GameScreenProps> = ({
     const dx = touchEndX - touchStartX.current;
     const dy = touchEndY - touchStartY.current;
 
-    // Detect longest delta to decide direction
-    if (Math.abs(dx) > Math.abs(dy)) {
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+
+    // Only process if swipe distance is significant
+    if (absDx < minSwipeDistance && absDy < minSwipeDistance) return;
+
+    // Filter diagonal swipes by requiring one axis to dominate by a factor of 1.5
+    const SWIPE_RATIO = 1.5;
+
+    if (absDx > absDy * SWIPE_RATIO) {
       // Horizontal swipe
-      if (Math.abs(dx) > minSwipeDistance) {
-        if (dx > 0) {
-          changeDirection("RIGHT");
-        } else {
-          changeDirection("LEFT");
-        }
+      if (dx > 0) {
+        changeDirection("RIGHT");
+      } else {
+        changeDirection("LEFT");
       }
-    } else {
+    } else if (absDy > absDx * SWIPE_RATIO) {
       // Vertical swipe
-      if (Math.abs(dy) > minSwipeDistance) {
-        if (dy > 0) {
-          changeDirection("DOWN");
-        } else {
-          changeDirection("UP");
-        }
+      if (dy > 0) {
+        changeDirection("DOWN");
+      } else {
+        changeDirection("UP");
       }
     }
   };
@@ -297,6 +352,11 @@ export const GameScreen: React.FC<GameScreenProps> = ({
             <Text style={[styles.modalTitle, { color: colors.textPrimary, textShadowColor: "#FF3366", textShadowRadius: 8 }]}>
               GAME OVER
             </Text>
+            {gameOverReason ? (
+              <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 4, fontFamily: UI_STYLES.fontFamily.mono }}>
+                ({gameOverReason})
+              </Text>
+            ) : null}
             
             <View style={styles.gameOverStats}>
               <View style={styles.statLine}>
