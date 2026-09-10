@@ -39,3 +39,16 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Local private files and indices
+CLAUDE.md
+GEMINI.md
+AGENTS.md
+VAULT.md
+PROJECT_LINKS.md
+decisions.md
+progress.md
+task_plan.md
+handoff.md
+graphify-out/
+
