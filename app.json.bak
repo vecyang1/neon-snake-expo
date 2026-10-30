@@ -26,7 +26,7 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "owner": "worldinspire",
+    "owner": "vecyang",
     "extra": {
       "eas": {
         "projectId": "89a79ff7-5676-4ea0-8bed-7277b2e69ea9"
